@@ -117,11 +117,21 @@ export default function Agenda() {
 
       setLoading(true);
       
-      console.log('Buscando agendamentos:', {
-        empresa: company.id,
-        profissional: selectedProfessional.id,
-        nome: selectedProfessional.nome,
-        data: currentDate.toISOString()
+      // Calcular as datas da semana
+      const weekDates = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date(currentDate);
+        date.setDate(date.getDate() - date.getDay() + i);
+        return date;
+      });
+
+      // Pegar o primeiro e último dia da semana
+      const firstDay = weekDates[0];
+      const lastDay = new Date(weekDates[6]);
+      lastDay.setDate(lastDay.getDate() + 1); // Adiciona 1 dia para pegar até o fim do último dia
+      
+      console.log('Buscando agendamentos entre:', {
+        inicio: firstDay.toISOString(),
+        fim: lastDay.toISOString()
       });
 
       const { data, error } = await supabase
@@ -140,61 +150,19 @@ export default function Agenda() {
           observações
         `)
         .eq('id_empresa', company.id)
-        .eq('id_profissional', selectedProfessional.id);
+        .eq('id_profissional', selectedProfessional.id)
+        .gte('inicio', firstDay.toISOString())
+        .lt('inicio', lastDay.toISOString())
+        .order('inicio');
 
       if (error) {
         console.error('Erro na query:', error);
         throw error;
       }
 
-      // Filtra os agendamentos do dia atual
-      const agendamentosDoDia = data?.filter(apt => {
-        const dataInicio = new Date(apt.inicio);
-        
-        console.log('Comparando datas:', {
-          agendamento: {
-            id: apt.id,
-            cliente: apt.cliente,
-            inicio: dataInicio.toLocaleString(),
-            dia: dataInicio.getDate(),
-            mes: dataInicio.getMonth() + 1,
-            ano: dataInicio.getFullYear()
-          },
-          currentDate: {
-            data: currentDate.toISOString(),
-            dia: currentDate.getDate(),
-            mes: currentDate.getMonth() + 1,
-            ano: currentDate.getFullYear()
-          }
-        });
-
-        const isSameDay = (
-          dataInicio.getDate() === currentDate.getDate() &&
-          dataInicio.getMonth() === currentDate.getMonth() &&
-          dataInicio.getFullYear() === currentDate.getFullYear()
-        );
-
-        if (isSameDay) {
-          console.log('✅ Agendamento encontrado para hoje:', {
-            id: apt.id,
-            cliente: apt.cliente,
-            horario: dataInicio.toLocaleTimeString()
-          });
-        }
-
-        return isSameDay;
-      }) || [];
-
-      // Ordena os agendamentos por horário
-      const agendamentosOrdenados = agendamentosDoDia.sort((a, b) => {
-        const dataA = new Date(a.inicio);
-        const dataB = new Date(b.inicio);
-        return dataA.getTime() - dataB.getTime();
-      });
-
-      console.log('Total de agendamentos do dia:', agendamentosOrdenados.length);
-
-      setAppointments(agendamentosOrdenados);
+      console.log('Agendamentos encontrados:', data?.length || 0);
+      
+      setAppointments(data || []);
       setError(null);
     } catch (err) {
       console.error('Erro ao buscar agendamentos:', err);
@@ -205,20 +173,11 @@ export default function Agenda() {
   }
 
   // Gerar datas da semana
-  const getWeekDates = () => {
-    const dates = [];
-    const startDate = new Date(currentDate);
-    startDate.setDate(startDate.getDate() - startDate.getDay()); // Começar no domingo
-
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + i);
-      dates.push(date);
-    }
-    return dates;
-  };
-
-  const weekDates = getWeekDates();
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(currentDate);
+    date.setDate(date.getDate() - date.getDay() + i);
+    return date;
+  });
 
   // Função para abrir o modal de novo agendamento ao clicar em um horário vazio
   const handleTimeSlotClick = (time: string) => {
@@ -440,15 +399,24 @@ export default function Agenda() {
                   {appointments
                     .filter(apt => {
                       const aptDate = new Date(apt.inicio);
-                      const isSameDay = aptDate.getDate() === date.getDate() &&
-                             aptDate.getMonth() === date.getMonth() &&
-                             aptDate.getFullYear() === date.getFullYear();
+                      const currentDate = new Date(date);
                       
-                      console.log('Verificando agendamento:', {
-                        aptDate,
-                        date,
-                        isSameDay,
-                        appointment: apt
+                      // Comparar apenas as datas, ignorando o horário
+                      const isSameDay = 
+                        aptDate.getFullYear() === currentDate.getFullYear() &&
+                        aptDate.getMonth() === currentDate.getMonth() &&
+                        aptDate.getDate() === currentDate.getDate();
+                      
+                      console.log('Comparando datas:', {
+                        agendamento: {
+                          cliente: apt.cliente,
+                          data: aptDate.toLocaleDateString(),
+                          hora: aptDate.toLocaleTimeString()
+                        },
+                        coluna: {
+                          data: currentDate.toLocaleDateString()
+                        },
+                        mesmodia: isSameDay
                       });
 
                       return isSameDay;

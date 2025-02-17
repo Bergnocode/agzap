@@ -111,25 +111,9 @@ export default function AppointmentModal({
       const dataFim = new Date(ano, mes - 1, dia, horaFim, minutoFim);
 
       console.log('Criando agendamento:', {
-        dadosForm: {
-          data: formData.data,
-          inicio: formData.horarioInicio,
-          fim: formData.horarioFim
-        },
-        dataCalculada: {
-          inicio: {
-            local: dataInicio.toLocaleString(),
-            iso: dataInicio.toISOString(),
-            hora: dataInicio.getHours(),
-            minuto: dataInicio.getMinutes()
-          },
-          fim: {
-            local: dataFim.toLocaleString(),
-            iso: dataFim.toISOString(),
-            hora: dataFim.getHours(),
-            minuto: dataFim.getMinutes()
-          }
-        }
+        data: formData.data,
+        dataInicio: dataInicio.toISOString(),
+        dataFim: dataFim.toISOString()
       });
 
       const { data, error: supabaseError } = await supabase
