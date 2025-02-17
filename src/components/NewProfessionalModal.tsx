@@ -1,117 +1,152 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Briefcase, Mail, Phone, ToggleLeft as Toggle, AlertCircle } from 'lucide-react';
+import { X, User, Briefcase, Mail, AlertCircle } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useCompany } from '../contexts/CompanyContext';
+
+interface Professional {
+  id: number;
+  nome: string;
+  id_profissao: number;
+  email: string | null;
+  foto: string | null;
+  nivel: boolean | null;
+}
+
+interface Profissao {
+  id: number;
+  profissao: string;
+  id_empresa: number;
+}
 
 interface NewProfessionalModalProps {
   isOpen: boolean;
   onClose: () => void;
-  darkMode: boolean;
-  professional?: {
-    id: number;
-    name: string;
-    specialty: string;
-    email: string;
-    phone: string;
-    status?: 'active' | 'inactive';
-  } | null;
+  professional: Professional | null;
+  profissoes: Profissao[];
 }
 
 interface FormData {
-  name: string;
-  specialty: string;
+  nome: string;
+  id_profissao: number;
   email: string;
-  phone: string;
-  status: 'active' | 'inactive';
+  nivel: boolean;
 }
 
 interface FormErrors {
-  name?: string;
-  specialty?: string;
+  nome?: string;
+  id_profissao?: string;
   email?: string;
-  phone?: string;
 }
 
-export default function NewProfessionalModal({ isOpen, onClose, darkMode, professional }: NewProfessionalModalProps) {
+export default function NewProfessionalModal({ 
+  isOpen, 
+  onClose, 
+  professional, 
+  profissoes 
+}: NewProfessionalModalProps) {
+  const { company } = useCompany();
   const [formData, setFormData] = useState<FormData>({
-    name: '',
-    specialty: '',
+    nome: '',
+    id_profissao: 0,
     email: '',
-    phone: '',
-    status: 'active'
+    nivel: false
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
 
-  // Atualiza o formulário quando receber um profissional para edição
   useEffect(() => {
     if (professional) {
       setFormData({
-        name: professional.name,
-        specialty: professional.specialty,
-        email: professional.email,
-        phone: professional.phone,
-        status: professional.status || 'active'
+        nome: professional.nome,
+        id_profissao: professional.id_profissao,
+        email: professional.email || '',
+        nivel: professional.nivel || false
       });
-      // Limpa os estados de erro e campos tocados
       setErrors({});
       setTouched({});
     } else {
-      // Reseta o formulário quando for um novo cadastro
       setFormData({
-        name: '',
-        specialty: '',
+        nome: '',
+        id_profissao: profissoes[0]?.id || 0,
         email: '',
-        phone: '',
-        status: 'active'
+        nivel: false
       });
     }
-  }, [professional]);
+  }, [professional, profissoes]);
 
   if (!isOpen) return null;
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Nome é obrigatório';
+    if (!formData.nome.trim()) {
+      newErrors.nome = 'Nome é obrigatório';
     }
 
-    if (!formData.specialty.trim()) {
-      newErrors.specialty = 'Especialidade é obrigatória';
+    if (!formData.id_profissao) {
+      newErrors.id_profissao = 'Profissão é obrigatória';
     }
 
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email é obrigatório';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Email inválido';
-    }
-
-    if (!formData.phone.trim()) {
-      newErrors.phone = 'Telefone é obrigatório';
-    } else if (!/^\d{10,11}$/.test(formData.phone.replace(/\D/g, ''))) {
-      newErrors.phone = 'Telefone inválido';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (validateForm()) {
-      // Aqui você implementaria a lógica para salvar ou atualizar o profissional
-      console.log('Dados do formulário:', formData);
-      console.log('Modo:', professional ? 'Edição' : 'Novo');
+    if (!validateForm() || !company?.id) return;
+
+    setLoading(true);
+    try {
+      const data = {
+        ...formData,
+        id_empresa: company.id
+      };
+
+      if (professional) {
+        // Atualizar profissional existente
+        const { error } = await supabase
+          .from('profissionais')
+          .update(data)
+          .eq('id', professional.id);
+
+        if (error) throw error;
+      } else {
+        // Criar novo profissional
+        const { error } = await supabase
+          .from('profissionais')
+          .insert([data]);
+
+        if (error) throw error;
+      }
+
       onClose();
+    } catch (error) {
+      console.error('Erro ao salvar profissional:', error);
+      alert('Erro ao salvar profissional. Por favor, tente novamente.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value, type } = e.target;
     
-    // Limpa o erro quando o usuário começa a digitar
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' 
+        ? (e.target as HTMLInputElement).checked 
+        : value
+    }));
+    
     if (errors[name as keyof FormErrors]) {
       setErrors(prev => ({ ...prev, [name]: undefined }));
     }
@@ -123,92 +158,84 @@ export default function NewProfessionalModal({ isOpen, onClose, darkMode, profes
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
       />
 
-      {/* Modal */}
       <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className={`relative w-full max-w-2xl rounded-xl shadow-lg ${
-          darkMode ? 'bg-gray-800' : 'bg-white'
-        } p-6 transform transition-all duration-300 ease-in-out`}>
-          {/* Header */}
+        <div className="relative w-full max-w-2xl rounded-xl shadow-lg bg-white dark:bg-gray-800 p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
               {professional ? 'Editar Profissional' : 'Cadastro de Novo Profissional'}
             </h2>
             <button
               onClick={onClose}
-              className={`p-2 rounded-lg ${
-                darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-              }`}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <User className="w-4 h-4 inline-block mr-2" />
                 Nome Completo <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                name="name"
-                value={formData.name}
+                name="nome"
+                value={formData.nome}
                 onChange={handleInputChange}
-                onBlur={() => handleBlur('name')}
-                className={`w-full rounded-lg border ${
-                  darkMode
-                    ? 'bg-gray-700 border-gray-600 text-white'
-                    : 'bg-white border-gray-200 text-gray-900'
-                } px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-                  touched.name && errors.name ? 'border-red-500' : ''
-                }`}
+                onBlur={() => handleBlur('nome')}
+                className={`w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 
+                  text-gray-900 dark:text-white px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50
+                  ${touched.nome && errors.nome ? 'border-red-500' : ''}`}
+                disabled={loading}
               />
-              {touched.name && errors.name && (
+              {touched.nome && errors.nome && (
                 <p className="mt-1 text-sm text-red-500 flex items-center">
                   <AlertCircle className="w-4 h-4 mr-1" />
-                  {errors.name}
+                  {errors.nome}
                 </p>
               )}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Briefcase className="w-4 h-4 inline-block mr-2" />
-                Especialidade/Cargo <span className="text-red-500">*</span>
+                Profissão <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                name="specialty"
-                value={formData.specialty}
+              <select
+                name="id_profissao"
+                value={formData.id_profissao}
                 onChange={handleInputChange}
-                onBlur={() => handleBlur('specialty')}
-                className={`w-full rounded-lg border ${
-                  darkMode
-                    ? 'bg-gray-700 border-gray-600 text-white'
-                    : 'bg-white border-gray-200 text-gray-900'
-                } px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-                  touched.specialty && errors.specialty ? 'border-red-500' : ''
-                }`}
-              />
-              {touched.specialty && errors.specialty && (
+                onBlur={() => handleBlur('id_profissao')}
+                className={`w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 
+                  text-gray-900 dark:text-white px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50
+                  ${touched.id_profissao && errors.id_profissao ? 'border-red-500' : ''}`}
+                disabled={loading}
+              >
+                <option value="">Selecione uma profissão</option>
+                {profissoes.map(profissao => (
+                  <option key={profissao.id} value={profissao.id}>
+                    {profissao.profissao}
+                  </option>
+                ))}
+              </select>
+              {touched.id_profissao && errors.id_profissao && (
                 <p className="mt-1 text-sm text-red-500 flex items-center">
                   <AlertCircle className="w-4 h-4 mr-1" />
-                  {errors.specialty}
+                  {errors.id_profissao}
                 </p>
               )}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Mail className="w-4 h-4 inline-block mr-2" />
-                Email Profissional <span className="text-red-500">*</span>
+                Email
               </label>
               <input
                 type="email"
@@ -216,13 +243,10 @@ export default function NewProfessionalModal({ isOpen, onClose, darkMode, profes
                 value={formData.email}
                 onChange={handleInputChange}
                 onBlur={() => handleBlur('email')}
-                className={`w-full rounded-lg border ${
-                  darkMode
-                    ? 'bg-gray-700 border-gray-600 text-white'
-                    : 'bg-white border-gray-200 text-gray-900'
-                } px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-                  touched.email && errors.email ? 'border-red-500' : ''
-                }`}
+                className={`w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 
+                  text-gray-900 dark:text-white px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50
+                  ${touched.email && errors.email ? 'border-red-500' : ''}`}
+                disabled={loading}
               />
               {touched.email && errors.email && (
                 <p className="mt-1 text-sm text-red-500 flex items-center">
@@ -232,69 +256,37 @@ export default function NewProfessionalModal({ isOpen, onClose, darkMode, profes
               )}
             </div>
 
-            <div>
-              <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
-                <Phone className="w-4 h-4 inline-block mr-2" />
-                Telefone de Contato <span className="text-red-500">*</span>
-              </label>
+            <div className="flex items-center">
               <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
+                type="checkbox"
+                name="nivel"
+                checked={formData.nivel}
                 onChange={handleInputChange}
-                onBlur={() => handleBlur('phone')}
-                className={`w-full rounded-lg border ${
-                  darkMode
-                    ? 'bg-gray-700 border-gray-600 text-white'
-                    : 'bg-white border-gray-200 text-gray-900'
-                } px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-                  touched.phone && errors.phone ? 'border-red-500' : ''
-                }`}
+                className="h-4 w-4 text-primary border-gray-300 rounded"
+                disabled={loading}
               />
-              {touched.phone && errors.phone && (
-                <p className="mt-1 text-sm text-red-500 flex items-center">
-                  <AlertCircle className="w-4 h-4 mr-1" />
-                  {errors.phone}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className={`block text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
-                <Toggle className="w-4 h-4 inline-block mr-2" />
-                Status <span className="text-red-500">*</span>
+              <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                Administrador
               </label>
-              <select
-                name="status"
-                value={formData.status}
-                onChange={handleInputChange}
-                className={`w-full rounded-lg border ${
-                  darkMode
-                    ? 'bg-gray-700 border-gray-600 text-white'
-                    : 'bg-white border-gray-200 text-gray-900'
-                } px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50`}
-              >
-                <option value="active">Ativo</option>
-                <option value="inactive">Inativo</option>
-              </select>
             </div>
 
-            {/* Footer */}
-            <div className="flex justify-end gap-4 mt-8">
+            <div className="flex justify-end space-x-4">
               <button
                 type="button"
                 onClick={onClose}
-                className={`px-4 py-2 rounded-lg border ${
-                  darkMode ? 'border-gray-700 text-gray-300' : 'border-gray-200 text-gray-600'
-                } hover:bg-gray-100 dark:hover:bg-gray-700`}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 
+                  dark:hover:bg-gray-700 rounded-lg transition-colors"
+                disabled={loading}
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg transition-colors duration-200"
+                className="px-4 py-2 text-sm font-medium text-white bg-[#00D856] hover:bg-[#00bf4b] 
+                  rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
               >
-                {professional ? 'Atualizar' : 'Salvar'}
+                {loading ? 'Salvando...' : professional ? 'Salvar Alterações' : 'Cadastrar'}
               </button>
             </div>
           </form>
