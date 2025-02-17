@@ -215,9 +215,46 @@ export default function Profissionais() {
     }
   };
 
-  const handleEdit = (professional: Professional) => {
-    setSelectedProfessional(professional);
-    setIsModalOpen(true);
+  const handleEdit = async (professional: Professional) => {
+    try {
+      // Testa permissões de exclusão
+      const { data: testDelete, error: testError } = await supabase
+        .from('disponibilidade_profissional')
+        .delete()
+        .eq('id', 11)
+        .select();
+
+      console.log('Teste de exclusão:', { testDelete, testError });
+
+      // Buscar disponibilidade do profissional
+      const { data: disponibilidade, error } = await supabase
+        .from('disponibilidade_profissional')
+        .select('id, dia_semana, hora_inicio, hora_fim, ativo')
+        .eq('id_profissional', professional.id)
+        .eq('ativo', true)
+        .order('dia_semana');
+
+      if (error) {
+        console.error('Erro ao buscar disponibilidade:', error);
+        return;
+      }
+
+      console.log('Disponibilidade encontrada:', disponibilidade);
+
+      // Atualizar o profissional com a disponibilidade
+      const profissionalComDisponibilidade = {
+        ...professional,
+        disponibilidade: disponibilidade || []
+      };
+
+      console.log('Profissional com disponibilidade:', profissionalComDisponibilidade);
+      
+      setSelectedProfessional(profissionalComDisponibilidade);
+      setIsModalOpen(true);
+    } catch (error) {
+      console.error('Erro ao buscar disponibilidade:', error);
+      alert('Erro ao carregar horários do profissional');
+    }
   };
 
   const handleCloseModal = () => {

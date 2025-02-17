@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, User, Briefcase, Mail, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useCompany } from '../contexts/CompanyContext';
+import DisponibilidadeForm from './DisponibilidadeForm';
 
 interface Professional {
   id: number;
@@ -38,6 +39,14 @@ interface FormErrors {
   email?: string;
 }
 
+interface Disponibilidade {
+  id?: number;
+  dia_semana: string;
+  hora_inicio: string;
+  hora_fim: string;
+  ativo: boolean;
+}
+
 export default function NewProfessionalModal({ 
   isOpen, 
   onClose, 
@@ -52,6 +61,8 @@ export default function NewProfessionalModal({
     nivel: false
   });
 
+  const [disponibilidade, setDisponibilidade] = useState<Disponibilidade[]>(professional?.disponibilidade || []);
+
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
@@ -64,8 +75,9 @@ export default function NewProfessionalModal({
         email: professional.email || '',
         nivel: professional.nivel || false
       });
-      setErrors({});
-      setTouched({});
+
+      // Carregar disponibilidade
+      fetchDisponibilidade(professional.id);
     } else {
       setFormData({
         nome: '',
@@ -73,8 +85,32 @@ export default function NewProfessionalModal({
         email: '',
         nivel: false
       });
+      setDisponibilidade([]);
     }
-  }, [professional, profissoes]);
+    setErrors({});
+    setTouched({});
+  }, [professional]);
+
+  const fetchDisponibilidade = async (profissionalId: number) => {
+    try {
+      const { data, error } = await supabase
+        .from('disponibilidade_profissional')
+        .select('id, dia_semana, hora_inicio, hora_fim, ativo')
+        .eq('id_profissional', profissionalId)
+        .eq('ativo', true)
+        .order('dia_semana');
+
+      if (error) {
+        console.error('Erro ao buscar disponibilidade:', error);
+        return;
+      }
+
+      console.log('Disponibilidade carregada:', data);
+      setDisponibilidade(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar disponibilidade:', error);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -117,13 +153,62 @@ export default function NewProfessionalModal({
           .eq('id', professional.id);
 
         if (error) throw error;
+
+        // Para cada horário na lista, insere ou atualiza
+        for (const disp of disponibilidade) {
+          if (disp.id) {
+            // Atualiza horário existente
+            const { error: dispError } = await supabase
+              .from('disponibilidade_profissional')
+              .update({
+                dia_semana: disp.dia_semana,
+                hora_inicio: disp.hora_inicio,
+                hora_fim: disp.hora_fim
+              })
+              .eq('id', disp.id);
+
+            if (dispError) throw dispError;
+          } else {
+            // Insere novo horário
+            const { error: dispError } = await supabase
+              .from('disponibilidade_profissional')
+              .insert({
+                id_profissional: professional.id,
+                dia_semana: disp.dia_semana,
+                hora_inicio: disp.hora_inicio,
+                hora_fim: disp.hora_fim,
+                ativo: true
+              });
+
+            if (dispError) throw dispError;
+          }
+        }
       } else {
         // Criar novo profissional
-        const { error } = await supabase
+        const { data: newProfessional, error } = await supabase
           .from('profissionais')
-          .insert([data]);
+          .insert([data])
+          .select()
+          .single();
 
         if (error) throw error;
+
+        // Inserir horários para o novo profissional
+        if (newProfessional && disponibilidade.length > 0) {
+          const horarios = disponibilidade.map(disp => ({
+            id_profissional: newProfessional.id,
+            dia_semana: disp.dia_semana,
+            hora_inicio: disp.hora_inicio,
+            hora_fim: disp.hora_fim,
+            ativo: true
+          }));
+
+          const { error: dispError } = await supabase
+            .from('disponibilidade_profissional')
+            .insert(horarios);
+
+          if (dispError) throw dispError;
+        }
       }
 
       onClose();
@@ -268,6 +353,16 @@ export default function NewProfessionalModal({
               <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                 Administrador
               </label>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Disponibilidade
+              </label>
+              <DisponibilidadeForm
+                disponibilidadeInicial={disponibilidade}
+                onChange={setDisponibilidade}
+              />
             </div>
 
             <div className="flex justify-end space-x-4">
