@@ -25,6 +25,14 @@ interface AppointmentModalProps {
     profissao: string;
   };
   onAppointmentCreated: () => void;
+  appointment?: {
+    id: number;
+    cliente: string;
+    telefone: string;
+    inicio: string;
+    fim: string;
+    observações: string;
+  };
 }
 
 export default function AppointmentModal({ 
@@ -34,7 +42,8 @@ export default function AppointmentModal({
   professional,
   selectedDate: initialDate,
   selectedTime: initialTime,
-  onAppointmentCreated 
+  onAppointmentCreated,
+  appointment 
 }: AppointmentModalProps) {
   const { company } = useCompany();
   const [loading, setLoading] = useState(false);
@@ -42,12 +51,12 @@ export default function AppointmentModal({
   
   // Form states
   const [formData, setFormData] = useState({
-    paciente: '',
-    telefone: '',
-    data: initialDate ? initialDate.toISOString().split('T')[0] : '',
-    horarioInicio: initialTime || '',
-    horarioFim: initialTime ? addHours(initialTime, 1) : '',
-    observacoes: ''
+    paciente: appointment?.cliente || '',
+    telefone: appointment?.telefone || '',
+    data: appointment ? new Date(appointment.inicio).toISOString().split('T')[0] : initialDate ? initialDate.toISOString().split('T')[0] : '',
+    horarioInicio: appointment ? new Date(appointment.inicio).toLocaleTimeString().slice(0, 5) : initialTime || '',
+    horarioFim: appointment ? new Date(appointment.fim).toLocaleTimeString().slice(0, 5) : initialTime ? addHours(initialTime, 1) : '',
+    observacoes: appointment?.observações || ''
   });
 
   const addHours = (time: string, hours: number): string => {
@@ -110,39 +119,59 @@ export default function AppointmentModal({
       const dataInicio = new Date(ano, mes - 1, dia, hora, minuto);
       const dataFim = new Date(ano, mes - 1, dia, horaFim, minutoFim);
 
-      console.log('Criando agendamento:', {
+      console.log('Salvando agendamento:', {
         data: formData.data,
         dataInicio: dataInicio.toISOString(),
         dataFim: dataFim.toISOString()
       });
 
-      const { data, error: supabaseError } = await supabase
-        .from('agendamentos')
-        .insert([
-          {
-            id_empresa: company.id,
-            id_profissional: professional.id,
-            inicio: dataInicio.toISOString(),
-            fim: dataFim.toISOString(),
-            data_agendamento: dataInicio.toISOString(),
-            cliente: formData.paciente,
-            telefone: formData.telefone,
-            "observações": formData.observacoes,
-            tipo: 'consulta'
-          }
-        ])
-        .select()
-        .single();
+      const agendamentoData = {
+        id_empresa: company.id,
+        id_profissional: professional.id,
+        inicio: dataInicio.toISOString(),
+        fim: dataFim.toISOString(),
+        data_agendamento: dataInicio.toISOString(),
+        cliente: formData.paciente,
+        telefone: formData.telefone,
+        "observações": formData.observacoes,
+        tipo: 'consulta'
+      };
 
-      if (supabaseError) throw supabaseError;
+      let data, error;
+
+      if (appointment) {
+        // Atualizar agendamento existente
+        ({ data, error } = await supabase
+          .from('agendamentos')
+          .update(agendamentoData)
+          .eq('id', appointment.id)
+          .select()
+          .single());
+
+        if (!error) {
+          toast.success('Agendamento atualizado com sucesso!');
+        }
+      } else {
+        // Criar novo agendamento
+        ({ data, error } = await supabase
+          .from('agendamentos')
+          .insert([agendamentoData])
+          .select()
+          .single());
+
+        if (!error) {
+          toast.success('Agendamento criado com sucesso!');
+        }
+      }
+
+      if (error) throw error;
 
       onAppointmentCreated();
       onClose();
-      toast.success('Agendamento criado com sucesso!');
     } catch (err: any) {
-      console.error('Erro ao criar agendamento:', err);
-      setError(err.message || 'Erro ao criar agendamento');
-      toast.error('Erro ao criar agendamento');
+      console.error('Erro ao salvar agendamento:', err);
+      setError(err.message || 'Erro ao salvar agendamento');
+      toast.error('Erro ao salvar agendamento');
     } finally {
       setLoading(false);
     }

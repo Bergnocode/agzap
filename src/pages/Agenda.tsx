@@ -9,6 +9,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import AppointmentModal from '../components/AppointmentModal';
+import EditAppointmentModal from '../components/EditAppointmentModal';
 import AppointmentDetailsModal from '../components/AppointmentDetailsModal';
 import { useTheme } from '../contexts/ThemeContext';
 import { useCompany } from '../contexts/CompanyContext';
@@ -51,9 +52,10 @@ export default function Agenda() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | null>(null);
   const [showProfessionalDropdown, setShowProfessionalDropdown] = useState(false);
-  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,21 +183,29 @@ export default function Agenda() {
 
   // Função para abrir o modal de novo agendamento ao clicar em um horário vazio
   const handleTimeSlotClick = (time: string) => {
-    // Verifica se o horário já está ocupado
-    const isSlotOccupied = appointments.some(
-      apt => format(parseISO(apt.inicio), 'HH:mm') === time && apt.id_profissional === selectedProfessional?.id
-    );
+    const isSlotOccupied = appointments.some(apt => {
+      const aptStart = new Date(apt.inicio);
+      const aptEnd = new Date(apt.fim);
+      const [hour] = time.split(':').map(Number);
+      const slotTime = new Date(currentDate);
+      slotTime.setHours(hour, 0, 0, 0);
+      return slotTime >= aptStart && slotTime < aptEnd;
+    });
 
     if (!isSlotOccupied) {
       setSelectedTimeSlot(time);
-      setIsAppointmentModalOpen(true);
+      setIsCreateModalOpen(true);
+      setIsEditModalOpen(false); // Garante que o modal de edição está fechado
+      setSelectedAppointment(null); // Limpa qualquer agendamento selecionado
     }
   };
 
   // Função para fechar o modal e limpar a seleção
   const handleCloseModal = () => {
-    setIsAppointmentModalOpen(false);
+    setIsCreateModalOpen(false);
+    setIsEditModalOpen(false);
     setSelectedTimeSlot(null);
+    setSelectedAppointment(null); // Limpa o agendamento selecionado ao fechar
   };
 
   if (companyLoading) {
@@ -313,7 +323,7 @@ export default function Agenda() {
             <Search className="w-5 h-5 text-gray-500 mx-auto md:mx-0" />
           </button>
           <button 
-            onClick={() => setIsAppointmentModalOpen(true)}
+            onClick={() => setIsCreateModalOpen(true)}
             className="bg-[#4A148C] hover:bg-[#6A1B9A] text-white px-4 md:px-6 py-2 rounded-lg transition-colors duration-200 flex items-center justify-center flex-1 md:flex-none"
           >
             <Plus className="w-5 h-5 md:mr-2" />
@@ -471,7 +481,12 @@ export default function Agenda() {
                       return (
                         <div
                           key={appointment.id}
-                          onClick={() => setSelectedAppointment(appointment)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Evita propagação do clique
+                            setSelectedAppointment(appointment);
+                            setIsEditModalOpen(true);
+                            setIsCreateModalOpen(false); // Garante que o modal de criação está fechado
+                          }}
                           className={`absolute left-0 right-0 mx-1 p-2 rounded-lg cursor-pointer border border-purple-200 shadow-sm hover:shadow-md transition-shadow ${
                             darkMode 
                               ? 'bg-purple-900 hover:bg-purple-800 border-purple-700 shadow-purple-900/50' 
@@ -500,11 +515,14 @@ export default function Agenda() {
         </div>
       )}
 
-      {/* Appointment Modal */}
-      {isAppointmentModalOpen && (
+      {/* Create Appointment Modal */}
+      {isCreateModalOpen && !isEditModalOpen && (
         <AppointmentModal
-          isOpen={isAppointmentModalOpen}
-          onClose={handleCloseModal}
+          isOpen={isCreateModalOpen}
+          onClose={() => {
+            handleCloseModal();
+            setSelectedAppointment(null);
+          }}
           darkMode={darkMode}
           professional={{
             id: selectedProfessional?.id || 0,
@@ -517,10 +535,29 @@ export default function Agenda() {
         />
       )}
 
+      {/* Edit Appointment Modal */}
+      {isEditModalOpen && selectedAppointment && !isCreateModalOpen && (
+        <EditAppointmentModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            handleCloseModal();
+            setSelectedAppointment(null);
+          }}
+          darkMode={darkMode}
+          professional={{
+            id: selectedProfessional?.id || 0,
+            nome: selectedProfessional?.nome || '',
+            profissao: selectedProfessional?.profissao || ''
+          }}
+          onAppointmentUpdated={fetchAgendamentos}
+          appointment={selectedAppointment}
+        />
+      )}
+
       {/* Appointment Details Modal */}
-      {selectedAppointment && (
+      {selectedAppointment && !isEditModalOpen && !isCreateModalOpen && (
         <AppointmentDetailsModal
-          isOpen={!!selectedAppointment}
+          isOpen={!!selectedAppointment && !isEditModalOpen && !isCreateModalOpen}
           onClose={() => setSelectedAppointment(null)}
           appointment={selectedAppointment}
           darkMode={darkMode}
