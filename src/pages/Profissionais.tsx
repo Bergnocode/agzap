@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit, Trash2, Filter, Clock } from 'lucide-react';
 import NewProfessionalModal from '../components/NewProfessionalModal';
 import DisponibilidadeModal from '../components/DisponibilidadeModal';
+import ConfirmationDialog from '../components/ConfirmationDialog';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,24 +16,26 @@ interface Professional {
   email: string | null;
   foto: string | null;
   nivel: boolean | null;
-  id_empresa: number;
+  id_empresa: string;
   profissao?: {
     id: number;
     profissao: string;
   };
   disponibilidade?: {
     id: number;
-    dia_semana: string;
+    dia_semana: 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' | 'domingo';
     hora_inicio: string;
     hora_fim: string;
     ativo: boolean;
+    id_profissional: number;
+    id_empresa: string | null;
   }[];
 }
 
 interface Profissao {
   id: number;
   profissao: string;
-  id_empresa: number;
+  id_empresa: string;
 }
 
 export default function Profissionais() {
@@ -47,6 +50,8 @@ export default function Profissionais() {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [profissoes, setProfissoes] = useState<Profissao[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [profissionalToDelete, setProfissionalToDelete] = useState<number | null>(null);
 
   useEffect(() => {
     if (company?.id && !companyLoading) {
@@ -193,25 +198,29 @@ export default function Profissionais() {
       .join(', ');
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Tem certeza que deseja excluir este profissional?')) return;
+  const handleDelete = (id: number) => {
+    setProfissionalToDelete(id);
+    setShowConfirmDelete(true);
+  };
 
-    setLoading(true);
+  const confirmDelete = async () => {
+    if (!profissionalToDelete) return;
+    
     try {
       const { error } = await supabase
         .from('profissionais')
         .delete()
-        .eq('id', id);
+        .eq('id', profissionalToDelete);
 
       if (error) throw error;
 
-      // Recarregar a lista após deletar
-      fetchProfessionals();
+      setProfessionals(prev => prev.filter(p => p.id !== profissionalToDelete));
     } catch (error) {
-      console.error('Erro ao deletar profissional:', error);
-      alert('Erro ao deletar profissional. Por favor, tente novamente.');
+      console.error('Erro ao excluir profissional:', error);
+      alert('Erro ao excluir profissional. Por favor, tente novamente.');
     } finally {
-      setLoading(false);
+      setShowConfirmDelete(false);
+      setProfissionalToDelete(null);
     }
   };
 
@@ -415,6 +424,20 @@ export default function Profissionais() {
         onClose={() => setIsDisponibilidadeModalOpen(false)}
         disponibilidade={selectedProfessional?.disponibilidade || []}
         nomeProfissional={selectedProfessional?.nome || ''}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showConfirmDelete}
+        onClose={() => {
+          setShowConfirmDelete(false);
+          setProfissionalToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Excluir Profissional"
+        message="Tem certeza que deseja excluir este profissional?"
+        confirmText="Excluir"
+        cancelText="Cancelar"
       />
     </div>
   );

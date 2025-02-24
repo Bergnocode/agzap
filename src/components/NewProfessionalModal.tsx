@@ -2,21 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { X, User, Briefcase, Mail, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useCompany } from '../contexts/CompanyContext';
+import { useAuth } from '../contexts/AuthContext';
 import DisponibilidadeForm from './DisponibilidadeForm';
 
 interface Professional {
-  id: number;
+  id: bigint;
   nome: string;
-  id_profissao: number;
+  id_profissao: bigint;
   email: string | null;
-  foto: string | null;
-  nivel: boolean | null;
+  nivel: boolean;
+  id_empresa: bigint;
 }
 
 interface Profissao {
-  id: number;
+  id: bigint;
   profissao: string;
-  id_empresa: number;
+  id_empresa: string;
 }
 
 interface NewProfessionalModalProps {
@@ -28,23 +29,27 @@ interface NewProfessionalModalProps {
 
 interface FormData {
   nome: string;
-  id_profissao: number;
+  id_profissao: string;
   email: string;
   nivel: boolean;
+  senha: string;
 }
 
 interface FormErrors {
   nome?: string;
   id_profissao?: string;
   email?: string;
+  senha?: string;
 }
 
 interface Disponibilidade {
-  id?: number;
-  dia_semana: string;
+  id?: bigint;
+  dia_semana: 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' | 'domingo';
   hora_inicio: string;
   hora_fim: string;
   ativo: boolean;
+  id_profissional: bigint;
+  id_empresa: bigint;
 }
 
 export default function NewProfessionalModal({ 
@@ -54,11 +59,13 @@ export default function NewProfessionalModal({
   profissoes 
 }: NewProfessionalModalProps) {
   const { company } = useCompany();
+  const { user } = useAuth();
   const [formData, setFormData] = useState<FormData>({
     nome: '',
-    id_profissao: 0,
+    id_profissao: '',
     email: '',
-    nivel: false
+    nivel: false,
+    senha: ''
   });
 
   const [disponibilidade, setDisponibilidade] = useState<Disponibilidade[]>(professional?.disponibilidade || []);
@@ -66,14 +73,16 @@ export default function NewProfessionalModal({
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (professional) {
       setFormData({
         nome: professional.nome,
-        id_profissao: professional.id_profissao,
+        id_profissao: professional.id_profissao.toString(),
         email: professional.email || '',
-        nivel: professional.nivel || false
+        nivel: professional.nivel,
+        senha: ''
       });
 
       // Carregar disponibilidade
@@ -81,9 +90,10 @@ export default function NewProfessionalModal({
     } else {
       setFormData({
         nome: '',
-        id_profissao: profissoes[0]?.id || 0,
+        id_profissao: profissoes[0]?.id.toString() || '',
         email: '',
-        nivel: false
+        nivel: false,
+        senha: ''
       });
       setDisponibilidade([]);
     }
@@ -91,7 +101,7 @@ export default function NewProfessionalModal({
     setTouched({});
   }, [professional]);
 
-  const fetchDisponibilidade = async (profissionalId: number) => {
+  const fetchDisponibilidade = async (profissionalId: bigint) => {
     try {
       const { data, error } = await supabase
         .from('disponibilidade_profissional')
@@ -129,6 +139,10 @@ export default function NewProfessionalModal({
       newErrors.email = 'Email inválido';
     }
 
+    if (!formData.senha.trim()) {
+      newErrors.senha = 'Senha é obrigatória';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -136,14 +150,34 @@ export default function NewProfessionalModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateForm() || !company?.id) return;
-
+    if (!validateForm()) return;
     setLoading(true);
+
     try {
+      if (!user) {
+        throw new Error('Usuário não está autenticado');
+      }
+
+      // Buscar o ID da empresa do usuário
+      const { data: empresaData, error: empresaError } = await supabase
+        .from('empresa')
+        .select('id')
+        .eq('criador', user.id)
+        .single();
+
+      if (empresaError) throw empresaError;
+      if (!empresaData) throw new Error('Empresa não encontrada');
+
       const data = {
-        ...formData,
-        id_empresa: company.id
+        nome: formData.nome,
+        id_profissao: parseInt(formData.id_profissao),
+        email: formData.email || null,
+        nivel: formData.nivel,
+        senha: formData.senha,
+        id_empresa: empresaData.id
       };
+
+      console.log('Dados a serem salvos:', data);
 
       if (professional) {
         // Atualizar profissional existente
@@ -154,7 +188,7 @@ export default function NewProfessionalModal({
 
         if (error) throw error;
 
-        // Para cada horário na lista, insere ou atualiza
+        // Para cada horário na lista
         for (const disp of disponibilidade) {
           if (disp.id) {
             // Atualiza horário existente
@@ -163,7 +197,9 @@ export default function NewProfessionalModal({
               .update({
                 dia_semana: disp.dia_semana,
                 hora_inicio: disp.hora_inicio,
-                hora_fim: disp.hora_fim
+                hora_fim: disp.hora_fim,
+                id_empresa: empresaData.id,
+                ativo: true
               })
               .eq('id', disp.id);
 
@@ -177,7 +213,8 @@ export default function NewProfessionalModal({
                 dia_semana: disp.dia_semana,
                 hora_inicio: disp.hora_inicio,
                 hora_fim: disp.hora_fim,
-                ativo: true
+                ativo: true,
+                id_empresa: empresaData.id
               });
 
             if (dispError) throw dispError;
@@ -200,7 +237,8 @@ export default function NewProfessionalModal({
             dia_semana: disp.dia_semana,
             hora_inicio: disp.hora_inicio,
             hora_fim: disp.hora_fim,
-            ativo: true
+            ativo: true,
+            id_empresa: empresaData.id
           }));
 
           const { error: dispError } = await supabase
@@ -211,10 +249,13 @@ export default function NewProfessionalModal({
         }
       }
 
-      onClose();
-    } catch (error) {
+      // Só fecha se todas as operações foram bem sucedidas
+      if (!professional || (professional && !disponibilidade.some(d => !d.id))) {
+        onClose();
+      }
+    } catch (error: any) {
       console.error('Erro ao salvar profissional:', error);
-      alert('Erro ao salvar profissional. Por favor, tente novamente.');
+      alert(`Erro ao salvar profissional: ${error.message || 'Por favor, tente novamente.'}`);
     } finally {
       setLoading(false);
     }
@@ -304,7 +345,7 @@ export default function NewProfessionalModal({
               >
                 <option value="">Selecione uma profissão</option>
                 {profissoes.map(profissao => (
-                  <option key={profissao.id} value={profissao.id}>
+                  <option key={profissao.id} value={profissao.id.toString()}>
                     {profissao.profissao}
                   </option>
                 ))}
@@ -341,6 +382,47 @@ export default function NewProfessionalModal({
               )}
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Senha <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  name="senha"
+                  value={formData.senha}
+                  onChange={handleInputChange}
+                  onBlur={() => handleBlur('senha')}
+                  className={`w-full rounded-lg border bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 
+                    text-gray-900 dark:text-white px-4 py-2 focus:ring-2 focus:ring-primary focus:ring-opacity-50 pr-10
+                    ${touched.senha && errors.senha ? 'border-red-500' : ''}`}
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-600 dark:text-gray-400"
+                >
+                  {showPassword ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {touched.senha && errors.senha && (
+                <p className="mt-1 text-sm text-red-500 flex items-center">
+                  <AlertCircle className="w-4 h-4 mr-1" />
+                  {errors.senha}
+                </p>
+              )}
+            </div>
+
             <div className="flex items-center">
               <input
                 type="checkbox"
@@ -361,6 +443,7 @@ export default function NewProfessionalModal({
               </label>
               <DisponibilidadeForm
                 disponibilidadeInicial={disponibilidade}
+                idProfissional={professional?.id || 0n}
                 onChange={setDisponibilidade}
               />
             </div>

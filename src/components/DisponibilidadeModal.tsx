@@ -3,10 +3,12 @@ import { X } from 'lucide-react';
 
 interface Disponibilidade {
   id: number;
-  dia_semana: string;
+  dia_semana: 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' | 'domingo';
   hora_inicio: string;
   hora_fim: string;
   ativo: boolean;
+  id_profissional: number;
+  id_empresa: string | null;
 }
 
 interface DisponibilidadeModalProps {
